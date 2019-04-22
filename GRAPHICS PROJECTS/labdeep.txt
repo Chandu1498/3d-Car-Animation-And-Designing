@@ -1,0 +1,330 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#  Part 1:  Recurrent Neural Network "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "###  Importing packages"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "import re\n",
+    "import numpy as np\n",
+    "import pandas as pd \n",
+    "\n",
+    "from sklearn.feature_extraction.text import CountVectorizer\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "\n",
+    "from keras.preprocessing import sequence\n",
+    "from keras.preprocessing.text import Tokenizer\n",
+    "from keras.preprocessing.sequence import pad_sequences\n",
+    "from keras.models import Sequential\n",
+    "from keras.layers import Dense, Embedding, LSTM\n",
+    "from keras.datasets import imdb\n",
+    "\n",
+    "from keras.utils.np_utils import to_categorical\n",
+    "\n",
+    "import warnings\n",
+    "warnings.filterwarnings('ignore')\n",
+    "import ssl\n",
+    "ssl._create_default_https_context = ssl._create_unverified_context"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Preparing Dataset"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Loading data...\n",
+      "25000 train sequences\n",
+      "25000 test sequences\n",
+      "Pad sequences (samples x time)\n",
+      "x_train shape: (25000, 80)\n",
+      "x_test shape: (25000, 80)\n"
+     ]
+    }
+   ],
+   "source": [
+    "max_features = 1000\n",
+    "maxlen = 80  # cut texts after this number of words (among top max_features most common words)\n",
+    "batch_size = 32\n",
+    "\n",
+    "print('Loading data...')\n",
+    "(x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)\n",
+    "print(len(x_train), 'train sequences')\n",
+    "print(len(x_test), 'test sequences')\n",
+    "\n",
+    "print('Pad sequences (samples x time)')\n",
+    "x_train = sequence.pad_sequences(x_train, maxlen=maxlen)\n",
+    "x_test = sequence.pad_sequences(x_test, maxlen=maxlen)\n",
+    "print('x_train shape:', x_train.shape)\n",
+    "print('x_test shape:', x_test.shape)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "1"
+      ]
+     },
+     "execution_count": 4,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "y_test[0]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "array([  0,   0,   0,   0,   0,   0,   0,   0,   1,  89,  27,   2,   2,\n",
+       "        17, 199, 132,   5,   2,  16,   2,  24,   8, 760,   4,   2,   7,\n",
+       "         4,  22,   2,   2,  16,   2,  17,   2,   7,   2,   2,   9,   4,\n",
+       "         2,   8,  14, 991,  13, 877,  38,  19,  27, 239,  13, 100, 235,\n",
+       "        61, 483,   2,   4,   7,   4,  20, 131,   2,  72,   8,  14, 251,\n",
+       "        27,   2,   7, 308,  16, 735,   2,  17,  29, 144,  28,  77,   2,\n",
+       "        18,  12])"
+      ]
+     },
+     "execution_count": 5,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "x_test[0]"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Visualize the data"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "that played the <UNK> of <UNK> and paul they were just brilliant children are often left out of the <UNK> <UNK> i think because the stars that play them all <UNK> up are such a big <UNK> for the whole film but these children are amazing and should be <UNK> for what they have done don't you think the whole story was so <UNK> because it was true and was <UNK> life after all that was <UNK> with us all\n"
+     ]
+    }
+   ],
+   "source": [
+    "INDEX_FROM=3   # word index offset\n",
+    "\n",
+    "word_to_id = imdb.get_word_index()\n",
+    "word_to_id = {k:(v+INDEX_FROM) for k,v in word_to_id.items()}\n",
+    "word_to_id[\"<PAD>\"] = 0\n",
+    "word_to_id[\"<START>\"] = 1\n",
+    "word_to_id[\"<UNK>\"] = 2\n",
+    "\n",
+    "id_to_word = {value:key for key,value in word_to_id.items()}\n",
+    "print(' '.join(id_to_word[id] for id in x_train[0] ))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Building a Model"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Build model...\n",
+      "_________________________________________________________________\n",
+      "Layer (type)                 Output Shape              Param #   \n",
+      "=================================================================\n",
+      "embedding_1 (Embedding)      (None, None, 8)           8000      \n",
+      "_________________________________________________________________\n",
+      "lstm_1 (LSTM)                (None, 16)                1600      \n",
+      "_________________________________________________________________\n",
+      "dense_1 (Dense)              (None, 1)                 17        \n",
+      "=================================================================\n",
+      "Total params: 9,617\n",
+      "Trainable params: 9,617\n",
+      "Non-trainable params: 0\n",
+      "_________________________________________________________________\n"
+     ]
+    }
+   ],
+   "source": [
+    "print('Build model...')\n",
+    "model = Sequential()\n",
+    "model.add(Embedding(max_features, 8))\n",
+    "model.add(LSTM(16, dropout=0.2, recurrent_dropout=0.2))\n",
+    "model.add(Dense(1, activation='sigmoid'))\n",
+    "model.summary()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Model Training"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Train on 25000 samples, validate on 25000 samples\n",
+      "Epoch 1/1\n",
+      "25000/25000 [==============================] - 46s - loss: 0.5526 - acc: 0.7189 - val_loss: 0.4525 - val_acc: 0.7945\n"
+     ]
+    },
+    {
+     "data": {
+      "text/plain": [
+       "<keras.callbacks.History at 0x221c30b84a8>"
+      ]
+     },
+     "execution_count": 8,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# try using different optimizers and different optimizer configs\n",
+    "model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])\n",
+    "\n",
+    "# Write the training input and output, batch size, and testing input and output\n",
+    "\n",
+    "model.fit(x_train, y_train, \n",
+    "          batch_size=batch_size, \n",
+    "          epochs=1, \n",
+    "          validation_data=(x_test, y_test))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Testing"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "24864/25000 [============================>.] - ETA: 0sTest score: 0.4524598253059387\n",
+      "Test accuracy: 0.79448\n"
+     ]
+    }
+   ],
+   "source": [
+    "score, acc = model.evaluate(x_test, y_test, batch_size=batch_size)\n",
+    "print('Test score:', score)\n",
+    "print('Test accuracy:', acc)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Prediction"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Prediction value: [0.89243305]\n",
+      "Test Label: [1]\n"
+     ]
+    }
+   ],
+   "source": [
+    "prediction = model.predict(x_test[1112:1113])\n",
+    "print('Prediction value:',prediction[0])\n",
+    "print('Test Label:',y_test[1112:1113])"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.1"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
